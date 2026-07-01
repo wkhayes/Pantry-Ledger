@@ -1,7 +1,7 @@
 /* db.js — IndexedDB data layer. No external dependencies (works fully offline). */
 
 const DB_NAME = 'pantryDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise = null;
 
@@ -16,6 +16,9 @@ function openDB() {
       }
       if (!db.objectStoreNames.contains('items')) {
         db.createObjectStore('items', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('oneTimeItems')) {
+        db.createObjectStore('oneTimeItems', { keyPath: 'id' });
       }
       if (!db.objectStoreNames.contains('meta')) {
         db.createObjectStore('meta', { keyPath: 'key' });
@@ -179,6 +182,38 @@ const DB = {
     rec.deferredAt = null;
     await Store.put('items', item);
     return item;
+  },
+
+  async receiveQty(itemId, locationId, qty) {
+    const item = await Store.get('items', itemId);
+    if (!item || !item.perLocation[locationId]) return null;
+    const rec = item.perLocation[locationId];
+    rec.inStock = roundQty(Math.max(0, rec.inStock + qty));
+    rec.lastUpdated = new Date().toISOString();
+    rec.lastAction = 'purchased';
+    rec.deferredAt = null;
+    await Store.put('items', item);
+    return item;
+  },
+
+  async getOneTimeItems() {
+    return Store.getAll('oneTimeItems');
+  },
+
+  async createOneTimeItem({ name, category, store, notes, locationIds }) {
+    const id = 'onetime-' + slugify(name) + '-' + Date.now().toString(36);
+    const now = new Date().toISOString();
+    const record = { id, name, category: category || '', store: store || '', notes: notes || '', locationIds: locationIds || [], createdAt: now };
+    await Store.put('oneTimeItems', record);
+    return record;
+  },
+
+  async updateOneTimeItem(record) {
+    return Store.put('oneTimeItems', record);
+  },
+
+  async deleteOneTimeItem(id) {
+    return Store.delete('oneTimeItems', id);
   },
 
   async deferItem(itemId, locationId) {

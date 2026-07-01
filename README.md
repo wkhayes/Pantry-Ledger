@@ -20,7 +20,21 @@ Your spreadsheet is already loaded in as starting data: **Lake Thunderbird** (fr
 
 Sharing the app/list with other people, exporting to Google Drive, multi-device sync, recipes linking items together, item photos, calendar scheduling, multi-stop route planning, and one-off/one-time items and stores. These all need either a backend, a Google account connection, or a native share sheet — the current build is intentionally local-only so it works with zero setup. Happy to scope any of these next.
 
-## Install it on your Android phone
+## What's new (round 2)
+
+- **Partial receive** — "Got it" now sits next to an editable quantity box (defaults to the full amount needed). Buy less than planned and the list keeps the remainder as a need instead of clearing it.
+- **Expandable rows** — item rows now show just the name and location. Tap the ▾ to reveal category, brand, home area, store(s), and last-update info without cluttering the list.
+- **Need is its own column** in the shopping list, between the item name and the action buttons.
+- **Sortable column headers** — tap "Item" or "Need"/"Stock" at the top of any list to sort by it; tap again to reverse.
+- **Compound filter** — a Filter button opens store, category, and home-area chip pickers plus a minimum-quantity-needed field. All selected criteria must match (AND), and the button shows how many filters are active.
+- **"All" location chip** — one tap to select every location at once, in both Inventory and Shopping List. (You'd mentioned wanting something added to the locations toggle but the sentence got cut off before it said what — I took a guess here. Let me know if you meant something else, like a combined vs. per-location display mode.)
+- **One-time items** — "+ One-time" on the shopping list adds something that's never tracked in inventory (no desired/stock, no defer). It sits in its own section until you tap "Got it" or "Remove."
+
+## Updating your deployed copy
+
+Since your repo is already live, just replace the files in your repo with the ones in this folder (same filenames) and push. No new setup needed — the app will pick up the new schema automatically the next time it loads (existing inventory data is preserved).
+
+
 
 A PWA needs to be served over **HTTPS** (or `localhost`) for the "install as app" and offline features to work — opening the HTML file directly from your Downloads folder won't fully work. Easiest free options:
 

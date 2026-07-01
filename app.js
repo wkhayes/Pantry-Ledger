@@ -3,13 +3,17 @@
 const state = {
   locations: [],
   items: [],
-  activeLocationIds: [],   // which location(s) are "in focus" (drives inventory view + default list scope)
-  view: 'inventory',       // 'inventory' | 'list' | 'search'
-  listScope: [],           // location ids included in the current shopping list view
-  listSort: 'store',       // 'store' | 'qty' | 'location'
-  listStoreFilter: 'all',
-  searchQuery: '',
-  editingItemId: null
+  oneTimeItems: [],
+  activeLocationIds: [],
+  view: 'inventory',
+  listScope: [],
+  invSort: { key: 'category', dir: 'asc' },   // 'category' | 'name' | 'stock'
+  listSort: { key: 'name', dir: 'asc' },      // 'name' | 'need'
+  invFilter: { stores: [], categories: [], homeAreas: [], minNeed: 0 },
+  listFilter: { stores: [], categories: [], homeAreas: [], minNeed: 0 },
+  filterDraft: null,
+  expanded: new Set(),
+  searchQuery: ''
 };
 
 const $app = document.getElementById('app');
@@ -18,6 +22,7 @@ async function boot() {
   await DB.seedIfEmpty();
   state.locations = await DB.getLocations();
   state.items = await DB.getItems();
+  state.oneTimeItems = await DB.getOneTimeItems();
   state.activeLocationIds = state.locations.map(l => l.id);
   state.listScope = [...state.activeLocationIds];
   render();
@@ -26,6 +31,10 @@ async function boot() {
 function fmtQty(n) {
   if (n === null || n === undefined) return '0';
   return (Math.round(n * 100) / 100).toString();
+}
+
+function needOf(rec) {
+  return Math.max(0, roundQty(rec.desiredQty - rec.inStock));
 }
 
 function timeAgo(iso) {
@@ -57,9 +66,42 @@ function allStoresInScope(locIds) {
   return [...set].sort();
 }
 
+function allCategoriesInScope(locIds) {
+  const set = new Set();
+  for (const item of state.items) {
+    if (locIds.some(id => item.perLocation[id])) set.add(item.category || 'Uncategorized');
+  }
+  return [...set].sort();
+}
+
+function allHomeAreasInScope(locIds) {
+  const set = new Set();
+  for (const item of state.items) {
+    for (const locId of locIds) {
+      const rec = item.perLocation[locId];
+      if (rec && rec.homeArea) set.add(rec.homeArea);
+    }
+  }
+  return [...set].sort();
+}
+
 function locName(id) {
   const l = state.locations.find(l => l.id === id);
   return l ? l.name : id;
+}
+
+function roundQty(n) { return Math.round(n * 100) / 100; }
+
+function matchesFilter(item, rec, filter) {
+  if (filter.stores.length && !(rec.stores || []).some(s => filter.stores.includes(s))) return false;
+  if (filter.categories.length && !filter.categories.includes(item.category || 'Uncategorized')) return false;
+  if (filter.homeAreas.length && !filter.homeAreas.includes(rec.homeArea || '')) return false;
+  if (filter.minNeed && needOf(rec) < filter.minNeed) return false;
+  return true;
+}
+
+function activeFilterCount(filter) {
+  return filter.stores.length + filter.categories.length + filter.homeAreas.length + (filter.minNeed ? 1 : 0);
 }
 
 /* ---------------- Rendering ---------------- */
@@ -94,12 +136,15 @@ function renderHeader() {
 
 function renderLocationChips() {
   const targetSet = state.view === 'list' ? state.listScope : state.activeLocationIds;
+  const allIds = state.locations.map(l => l.id);
+  const allOn = allIds.length > 0 && allIds.every(id => targetSet.includes(id));
   const chips = state.locations.map(loc => {
     const on = targetSet.includes(loc.id);
     return `<button class="chip ${on ? 'chip-on' : ''}" data-action="toggle-loc" data-loc="${loc.id}">${escapeHtml(loc.name)}</button>`;
   }).join('');
   return `
     <div class="chip-row">
+      <button class="chip chip-all ${allOn ? 'chip-on' : ''}" data-action="toggle-all-loc">All</button>
       ${chips}
       <button class="chip chip-add" data-action="add-location">+ Location</button>
     </div>
@@ -124,46 +169,108 @@ function renderTabBar() {
   `;
 }
 
+function sortHeaderBtn(label, scope, key, currentSort, extraClass) {
+  const active = currentSort.key === key;
+  const arrow = active ? (currentSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+  return `<button class="col-header ${extraClass || ''} ${active ? 'col-header-active' : ''}" data-action="sort-col" data-scope="${scope}" data-key="${key}">${label}${arrow}</button>`;
+}
+
+function filterButtonHtml(scope, filter) {
+  const n = activeFilterCount(filter);
+  return `<button class="btn btn-ghost btn-filter" data-action="open-filter" data-scope="${scope}">Filter${n ? ` (${n})` : ''}</button>`;
+}
+
+function expandToggleBtn(key) {
+  const open = state.expanded.has(key);
+  return `<button class="expand-toggle ${open ? 'expand-toggle-open' : ''}" data-action="toggle-expand" data-key="${key}" aria-label="Details">${open ? '▲' : '▼'}</button>`;
+}
+
+function detailsPanel(item, rec, locId) {
+  return `
+    <div class="row-details">
+      <div class="detail-grid">
+        <div class="detail-label">Category</div><div class="detail-value">${escapeHtml(item.category || 'Uncategorized')}</div>
+        <div class="detail-label">Brand</div><div class="detail-value">${escapeHtml(item.brand || '—')}</div>
+        <div class="detail-label">Home area</div><div class="detail-value">${escapeHtml(rec.homeArea || '—')}</div>
+        <div class="detail-label">Store(s)</div><div class="detail-value">${(rec.stores || []).map(s => escapeHtml(s)).join(', ') || '—'}</div>
+        <div class="detail-label">Last update</div><div class="detail-value">${actionLabel(rec.lastAction)} · ${timeAgo(rec.lastUpdated)}</div>
+        ${item.description ? `<div class="detail-label">Notes</div><div class="detail-value">${escapeHtml(item.description)}</div>` : ''}
+      </div>
+      <button class="btn btn-ghost btn-sm detail-edit-btn" data-action="open-item" data-item="${item.id}">Edit item</button>
+    </div>
+  `;
+}
+
 function renderInventory() {
   const locIds = state.activeLocationIds.length ? state.activeLocationIds : state.locations.map(l => l.id);
   if (!locIds.length) return emptyState('No locations yet', 'Add a location to start tracking inventory.', 'add-location', 'Add Location');
 
-  const rows = state.items
-    .map(item => ({ item, entries: locIds.filter(id => item.perLocation[id]).map(id => ({ locId: id, rec: item.perLocation[id] })) }))
-    .filter(x => x.entries.length)
-    .sort((a, b) => a.item.category.localeCompare(b.item.category) || a.item.name.localeCompare(b.item.name));
+  let rows = [];
+  for (const item of state.items) {
+    for (const locId of locIds) {
+      const rec = item.perLocation[locId];
+      if (!rec) continue;
+      if (!matchesFilter(item, rec, state.invFilter)) continue;
+      rows.push({ item, locId, rec });
+    }
+  }
 
-  if (!rows.length) return emptyState('No items yet', 'Add your first item to this location.', 'open-add-item', 'Add Item');
+  if (!rows.length) {
+    const msg = activeFilterCount(state.invFilter) ? 'No items match your filters.' : 'Add your first item to this location.';
+    return controlsBar('inv') + emptyState('No items found', msg, 'open-add-item', 'Add Item');
+  }
 
-  let lastCategory = null;
-  const body = rows.map(({ item, entries }) => {
-    const catHeader = item.category !== lastCategory ? (() => { lastCategory = item.category; return `<div class="cat-header">${escapeHtml(item.category)}</div>`; })() : '';
-    const entryRows = entries.map(({ locId, rec }) => `
-      <div class="item-row">
-        <div class="item-main" data-action="open-item" data-item="${item.id}">
-          <div class="item-name">${escapeHtml(item.name)}</div>
-          <div class="item-meta">
-            ${locIds.length > 1 ? `<span class="tag tag-loc">${escapeHtml(locName(locId))}</span>` : ''}
-            ${rec.homeArea ? `<span class="tag">${escapeHtml(rec.homeArea)}</span>` : ''}
-            ${(rec.stores || []).map(s => `<span class="tag tag-store">${escapeHtml(s)}</span>`).join('')}
-            <span class="updated">Last ${actionLabel(rec.lastAction)} · ${timeAgo(rec.lastUpdated)}</span>
-          </div>
-        </div>
+  const { key, dir } = state.invSort;
+  const mul = dir === 'asc' ? 1 : -1;
+  if (key === 'name') {
+    rows.sort((a, b) => mul * a.item.name.localeCompare(b.item.name));
+  } else if (key === 'stock') {
+    rows.sort((a, b) => mul * (a.rec.inStock - b.rec.inStock));
+  } else {
+    rows.sort((a, b) => a.item.category.localeCompare(b.item.category) || a.item.name.localeCompare(b.item.name));
+  }
+
+  let body;
+  if (key === 'category') {
+    let lastCategory = null;
+    body = rows.map(({ item, locId, rec }) => {
+      const catHeader = item.category !== lastCategory ? (() => { lastCategory = item.category; return `<div class="cat-header">${escapeHtml(item.category)}</div>`; })() : '';
+      return catHeader + inventoryRowHtml(item, locId, rec, locIds);
+    }).join('');
+  } else {
+    body = rows.map(({ item, locId, rec }) => inventoryRowHtml(item, locId, rec, locIds)).join('');
+  }
+
+  const headerRow = `
+    <div class="col-headers">
+      ${sortHeaderBtn('Item', 'inv', 'name', state.invSort, 'col-header-name')}
+      ${sortHeaderBtn('Stock', 'inv', 'stock', state.invSort, 'col-header-need')}
+      <span class="col-header-spacer"></span>
+    </div>
+  `;
+
+  return controlsBar('inv') + `<div class="list">${headerRow}${body}</div>`;
+}
+
+function inventoryRowHtml(item, locId, rec, locIds) {
+  const key = `${item.id}::${locId}`;
+  const open = state.expanded.has(key);
+  return `
+    <div class="item-row">
+      <div class="row-name-col" data-action="toggle-expand" data-key="${key}">
+        <div class="item-name">${escapeHtml(item.name)}</div>
+        ${locIds.length > 1 ? `<div class="chip-inline"><span class="tag tag-loc">${escapeHtml(locName(locId))}</span></div>` : ''}
+      </div>
+      <div class="row-stepper-col">
         <div class="stepper">
           <button class="step-btn" data-action="adjust" data-item="${item.id}" data-loc="${locId}" data-delta="-1">−</button>
           <span class="qty-display"><span class="qty-mono">${fmtQty(rec.inStock)}</span><span class="qty-sep">/</span><span class="qty-mono qty-desired">${fmtQty(rec.desiredQty)}</span></span>
           <button class="step-btn" data-action="adjust" data-item="${item.id}" data-loc="${locId}" data-delta="1">+</button>
         </div>
       </div>
-    `).join('');
-    return catHeader + entryRows;
-  }).join('');
-
-  return `
-    <div class="toolbar">
-      <button class="btn btn-primary" data-action="open-add-item">+ Add Item</button>
+      ${expandToggleBtn(key)}
     </div>
-    <div class="list">${body}</div>
+    ${open ? detailsPanel(item, rec, locId) : ''}
   `;
 }
 
@@ -175,7 +282,7 @@ function computeShoppingList() {
     for (const locId of locIds) {
       const rec = item.perLocation[locId];
       if (!rec) continue;
-      const need = roundQty(rec.desiredQty - rec.inStock);
+      const need = needOf(rec);
       if (need > 0) {
         const row = { item, locId, rec, need };
         if (rec.deferredAt) deferred.push(row); else needed.push(row);
@@ -185,87 +292,123 @@ function computeShoppingList() {
   return { needed, deferred, locIds };
 }
 
-function roundQty(n) { return Math.round(n * 100) / 100; }
-
-function sortRows(rows) {
-  const sort = state.listSort;
+function sortListRows(rows) {
+  const { key, dir } = state.listSort;
+  const mul = dir === 'asc' ? 1 : -1;
   return rows.slice().sort((a, b) => {
-    if (sort === 'qty') return b.need - a.need;
-    if (sort === 'location') return locName(a.locId).localeCompare(locName(b.locId)) || b.need - a.need;
-    // store
-    const as = (a.rec.stores && a.rec.stores[0]) || 'zzz';
-    const bs = (b.rec.stores && b.rec.stores[0]) || 'zzz';
-    return as.localeCompare(bs) || b.need - a.need;
+    if (key === 'need') return mul * (a.need - b.need);
+    return mul * a.item.name.localeCompare(b.item.name);
   });
+}
+
+function controlsBar(scope) {
+  const filter = scope === 'inv' ? state.invFilter : state.listFilter;
+  return `
+    <div class="toolbar toolbar-wrap">
+      ${filterButtonHtml(scope, filter)}
+      <button class="btn btn-primary" data-action="open-add-item" ${scope === 'list' ? 'data-target-list="1"' : ''}>+ Add Item</button>
+      ${scope === 'list' ? `<button class="btn btn-ghost" data-action="open-add-onetime">+ One-time</button>` : ''}
+    </div>
+  `;
 }
 
 function renderShoppingList() {
   if (!state.locations.length) return emptyState('No locations yet', 'Add a location first.', 'add-location', 'Add Location');
 
   const { needed, deferred, locIds } = computeShoppingList();
-  const stores = allStoresInScope(locIds);
-  let filtered = needed;
-  if (state.listStoreFilter !== 'all') {
-    filtered = filtered.filter(r => (r.rec.stores || []).includes(state.listStoreFilter));
-  }
-  filtered = sortRows(filtered);
+  let filtered = needed.filter(r => matchesFilter(r.item, r.rec, state.listFilter));
+  filtered = sortListRows(filtered);
 
-  const controls = `
-    <div class="toolbar toolbar-wrap">
-      <select class="select" data-action="sort-list">
-        <option value="store" ${state.listSort === 'store' ? 'selected' : ''}>Sort: Store</option>
-        <option value="qty" ${state.listSort === 'qty' ? 'selected' : ''}>Sort: Qty needed</option>
-        <option value="location" ${state.listSort === 'location' ? 'selected' : ''}>Sort: Location</option>
-      </select>
-      <select class="select" data-action="filter-store">
-        <option value="all" ${state.listStoreFilter === 'all' ? 'selected' : ''}>All stores</option>
-        ${stores.map(s => `<option value="${escapeHtml(s)}" ${state.listStoreFilter === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
-      </select>
-      <button class="btn btn-primary" data-action="open-add-item" data-target-list="1">+ Add Item</button>
+  const oneTimeRows = state.oneTimeItems.filter(ot => !ot.locationIds.length || ot.locationIds.some(id => locIds.includes(id)));
+
+  const controls = controlsBar('list');
+
+  if (!filtered.length && !deferred.length && !oneTimeRows.length) {
+    const msg = activeFilterCount(state.listFilter) ? 'No items match your filters.' : 'Nothing needed for this scope right now.';
+    return controls + emptyState('All stocked up', msg, null, null);
+  }
+
+  const headerRow = filtered.length ? `
+    <div class="col-headers">
+      ${sortHeaderBtn('Item', 'list', 'name', state.listSort, 'col-header-name')}
+      ${sortHeaderBtn('Need', 'list', 'need', state.listSort, 'col-header-need')}
+      <span class="col-header-spacer"></span>
     </div>
-  `;
+  ` : '';
 
-  if (!filtered.length && !deferred.length) {
-    return controls + emptyState('All stocked up', 'Nothing needed for this scope right now.', null, null);
-  }
-
-  const rowsHtml = filtered.map(({ item, locId, rec, need }) => `
-    <div class="item-row">
-      <div class="item-main" data-action="open-item" data-item="${item.id}">
-        <div class="item-name">${escapeHtml(item.name)}</div>
-        <div class="item-meta">
-          ${locIds.length > 1 ? `<span class="tag tag-loc">${escapeHtml(locName(locId))}</span>` : ''}
-          ${(rec.stores || []).map(s => `<span class="tag tag-store">${escapeHtml(s)}</span>`).join('')}
-          <span class="need-badge">need ${fmtQty(need)}</span>
+  const rowsHtml = filtered.map(({ item, locId, rec, need }) => {
+    const key = `${item.id}::${locId}`;
+    const open = state.expanded.has(key);
+    return `
+      <div class="item-row item-row-2line">
+        <div class="row-top">
+          <div class="row-name-col" data-action="toggle-expand" data-key="${key}">
+            <div class="item-name">${escapeHtml(item.name)}</div>
+          </div>
+          <div class="row-need-col"><span class="need-badge">${fmtQty(need)}</span></div>
+          ${expandToggleBtn(key)}
+        </div>
+        <div class="row-bottom">
+          <div class="chip-inline">${locIds.length > 1 ? `<span class="tag tag-loc">${escapeHtml(locName(locId))}</span>` : ''}</div>
+          <div class="row-actions-col">
+            <input type="number" class="qty-input" min="0" step="0.5" value="${fmtQty(need)}" data-qty-for="${item.id}::${locId}" />
+            <button class="btn btn-primary btn-sm" data-action="receive" data-item="${item.id}" data-loc="${locId}">Got it</button>
+            <button class="btn btn-ghost btn-sm" data-action="defer" data-item="${item.id}" data-loc="${locId}">Defer</button>
+          </div>
         </div>
       </div>
-      <div class="row-actions">
-        <button class="btn btn-ghost btn-sm" data-action="defer" data-item="${item.id}" data-loc="${locId}">Defer</button>
-        <button class="btn btn-primary btn-sm" data-action="purchased" data-item="${item.id}" data-loc="${locId}">Got it</button>
-      </div>
-    </div>
-  `).join('');
+      ${open ? detailsPanel(item, rec, locId) : ''}
+    `;
+  }).join('');
 
   const deferredHtml = deferred.length ? `
     <div class="cat-header cat-header-muted">Deferred (${deferred.length})</div>
     ${deferred.map(({ item, locId, rec, need }) => `
-      <div class="item-row item-row-muted">
-        <div class="item-main" data-action="open-item" data-item="${item.id}">
-          <div class="item-name">${escapeHtml(item.name)}</div>
-          <div class="item-meta">
+      <div class="item-row item-row-2line item-row-muted">
+        <div class="row-top">
+          <div class="row-name-col">
+            <div class="item-name">${escapeHtml(item.name)}</div>
+          </div>
+          <div class="row-need-col"><span class="need-badge need-badge-muted">${fmtQty(need)}</span></div>
+        </div>
+        <div class="row-bottom">
+          <div class="chip-inline">
             ${locIds.length > 1 ? `<span class="tag tag-loc">${escapeHtml(locName(locId))}</span>` : ''}
-            <span class="need-badge need-badge-muted">need ${fmtQty(need)}</span>
             <span class="updated">deferred ${timeAgo(rec.deferredAt)}</span>
           </div>
-        </div>
-        <div class="row-actions">
-          <button class="btn btn-ghost btn-sm" data-action="undefer" data-item="${item.id}" data-loc="${locId}">Restore</button>
+          <div class="row-actions-col">
+            <button class="btn btn-ghost btn-sm" data-action="undefer" data-item="${item.id}" data-loc="${locId}">Restore</button>
+          </div>
         </div>
       </div>
     `).join('')}
   ` : '';
 
-  return controls + `<div class="list">${rowsHtml}${deferredHtml}</div>`;
+  const oneTimeHtml = oneTimeRows.length ? `
+    <div class="cat-header">One-time (${oneTimeRows.length})</div>
+    ${oneTimeRows.map(ot => `
+      <div class="item-row item-row-2line">
+        <div class="row-top">
+          <div class="row-name-col">
+            <div class="item-name">${escapeHtml(ot.name)}</div>
+          </div>
+          <div class="row-need-col">—</div>
+        </div>
+        <div class="row-bottom">
+          <div class="chip-inline">
+            ${ot.category ? `<span class="tag">${escapeHtml(ot.category)}</span>` : ''}
+            ${ot.store ? `<span class="tag tag-store">${escapeHtml(ot.store)}</span>` : ''}
+          </div>
+          <div class="row-actions-col">
+            <button class="btn btn-primary btn-sm" data-action="onetime-got" data-id="${ot.id}">Got it</button>
+            <button class="btn btn-ghost btn-sm" data-action="onetime-remove" data-id="${ot.id}">Remove</button>
+          </div>
+        </div>
+      </div>
+    `).join('')}
+  ` : '';
+
+  return controls + `<div class="list">${headerRow}${rowsHtml}${deferredHtml}${oneTimeHtml}</div>`;
 }
 
 function renderSearch() {
@@ -331,6 +474,7 @@ function openModal(html) {
 
 function closeModal() {
   document.getElementById('modal-root').innerHTML = '';
+  state.filterDraft = null;
 }
 
 function openAddLocationModal() {
@@ -354,7 +498,7 @@ function openAddLocationModal() {
   `);
 }
 
-function openItemModal(itemId, opts = {}) {
+function openItemModal(itemId) {
   const item = state.items.find(i => i.id === itemId);
   if (!item) return;
   const locEntries = state.locations.map(loc => {
@@ -439,6 +583,88 @@ function openAddItemModal(forList) {
   `);
 }
 
+function openAddOneTimeModal() {
+  const locOptions = state.locations.map(l => `
+    <label class="checkbox-row">
+      <input type="checkbox" value="${l.id}" class="new-onetime-loc" ${state.listScope.includes(l.id) ? 'checked' : ''} />
+      ${escapeHtml(l.name)}
+    </label>
+  `).join('');
+
+  openModal(`
+    <h2 class="modal-title">Add One-time Item</h2>
+    <div class="field-hint">Won't be added to inventory. Stays on the shopping list until you mark it purchased — can't be deferred.</div>
+    <label class="field-label">Name</label>
+    <input class="text-input" id="new-onetime-name" placeholder="e.g. Birthday candles" />
+    <div class="field-row">
+      <div class="field-col"><label class="field-label">Category</label><input class="text-input" id="new-onetime-category" placeholder="optional" /></div>
+      <div class="field-col"><label class="field-label">Store</label><input class="text-input" id="new-onetime-store" placeholder="optional" /></div>
+    </div>
+    <label class="field-label">Notes</label>
+    <textarea class="text-input" id="new-onetime-notes" rows="2" placeholder="optional"></textarea>
+    <label class="field-label">Show on list for</label>
+    <div class="checkbox-group">${locOptions}</div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-action="close-modal">Cancel</button>
+      <button class="btn btn-primary" data-action="save-onetime">Add to List</button>
+    </div>
+  `);
+}
+
+function openFilterModal(scope) {
+  const current = scope === 'inv' ? state.invFilter : state.listFilter;
+  const locIds = scope === 'inv'
+    ? (state.activeLocationIds.length ? state.activeLocationIds : state.locations.map(l => l.id))
+    : (state.listScope.length ? state.listScope : state.locations.map(l => l.id));
+  state.filterDraft = {
+    scope, locIds,
+    stores: [...current.stores],
+    categories: [...current.categories],
+    homeAreas: [...current.homeAreas],
+    minNeed: current.minNeed
+  };
+  openModal(renderFilterModalBody());
+}
+
+function renderFilterModalBody() {
+  const d = state.filterDraft;
+  const stores = allStoresInScope(d.locIds);
+  const categories = allCategoriesInScope(d.locIds);
+  const homeAreas = allHomeAreasInScope(d.locIds);
+
+  const chipGroup = (dim, values) => values.length ? `
+    <div class="filter-chip-row">
+      ${values.map(v => `<button class="chip ${d[dim].includes(v) ? 'chip-on' : ''}" data-action="toggle-filter-chip" data-dim="${dim}" data-value="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join('')}
+    </div>
+  ` : `<div class="field-hint">None available in current scope.</div>`;
+
+  return `
+    <h2 class="modal-title">Filter</h2>
+    <div class="field-hint">All selected criteria must match — narrows the list, doesn't broaden it.</div>
+
+    <div class="modal-subhead">Store</div>
+    ${chipGroup('stores', stores)}
+
+    <div class="modal-subhead">Category</div>
+    ${chipGroup('categories', categories)}
+
+    <div class="modal-subhead">Home area</div>
+    ${chipGroup('homeAreas', homeAreas)}
+
+    <div class="modal-subhead">Quantity needed</div>
+    <input class="text-input" type="number" min="0" step="0.5" id="filter-minneed" value="${d.minNeed}" placeholder="0" />
+    <div class="field-hint">Only show items needing at least this much.</div>
+
+    <div class="modal-actions modal-actions-split">
+      <button class="btn btn-ghost" data-action="clear-filter">Clear all</button>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-action="close-modal">Cancel</button>
+        <button class="btn btn-primary" data-action="apply-filter">Apply</button>
+      </div>
+    </div>
+  `;
+}
+
 /* ---------------- Event handling ---------------- */
 
 function bindGlobalEvents() {
@@ -457,6 +683,14 @@ function bindGlobalEvents() {
         if (idx >= 0) { if (list.length > 1) list.splice(idx, 1); } else list.push(id);
         render();
       });
+    } else if (action === 'toggle-all-loc') {
+      el.addEventListener('click', () => {
+        const list = state.view === 'list' ? state.listScope : state.activeLocationIds;
+        const allIds = state.locations.map(l => l.id);
+        list.length = 0;
+        list.push(...allIds);
+        render();
+      });
     } else if (action === 'add-location') {
       el.addEventListener('click', () => openAddLocationModal());
     } else if (action === 'save-location') {
@@ -465,8 +699,22 @@ function bindGlobalEvents() {
       el.addEventListener('click', () => openAddItemModal(!!el.dataset.targetList));
     } else if (action === 'save-new-item') {
       el.addEventListener('click', onSaveNewItem);
+    } else if (action === 'open-add-onetime') {
+      el.addEventListener('click', () => openAddOneTimeModal());
+    } else if (action === 'save-onetime') {
+      el.addEventListener('click', onSaveOneTime);
+    } else if (action === 'onetime-got') {
+      el.addEventListener('click', async () => { await DB.deleteOneTimeItem(el.dataset.id); state.oneTimeItems = await DB.getOneTimeItems(); render(); });
+    } else if (action === 'onetime-remove') {
+      el.addEventListener('click', async () => { await DB.deleteOneTimeItem(el.dataset.id); state.oneTimeItems = await DB.getOneTimeItems(); render(); });
     } else if (action === 'open-item') {
-      el.addEventListener('click', (e) => { if (e.target.closest('[data-action="adjust"]')) return; openItemModal(el.dataset.item); });
+      el.addEventListener('click', (e) => { e.stopPropagation(); openItemModal(el.dataset.item); });
+    } else if (action === 'toggle-expand') {
+      el.addEventListener('click', () => {
+        const key = el.dataset.key;
+        if (state.expanded.has(key)) state.expanded.delete(key); else state.expanded.add(key);
+        render();
+      });
     } else if (action === 'adjust') {
       el.addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -478,12 +726,58 @@ function bindGlobalEvents() {
       el.addEventListener('click', async () => { await DB.deferItem(el.dataset.item, el.dataset.loc); state.items = await DB.getItems(); render(); });
     } else if (action === 'undefer') {
       el.addEventListener('click', async () => { await DB.undeferItem(el.dataset.item, el.dataset.loc); state.items = await DB.getItems(); render(); });
-    } else if (action === 'purchased') {
-      el.addEventListener('click', async () => { await DB.markPurchased(el.dataset.item, el.dataset.loc); state.items = await DB.getItems(); render(); });
-    } else if (action === 'sort-list') {
-      el.addEventListener('change', () => { state.listSort = el.value; render(); });
-    } else if (action === 'filter-store') {
-      el.addEventListener('change', () => { state.listStoreFilter = el.value; render(); });
+    } else if (action === 'receive') {
+      el.addEventListener('click', async () => {
+        const input = document.querySelector(`[data-qty-for="${el.dataset.item}::${el.dataset.loc}"]`);
+        const qty = input ? parseFloat(input.value) : NaN;
+        if (!isFinite(qty) || qty <= 0) return;
+        await DB.receiveQty(el.dataset.item, el.dataset.loc, qty);
+        state.items = await DB.getItems();
+        render();
+      });
+    } else if (action === 'sort-col') {
+      el.addEventListener('click', () => {
+        const sortObj = el.dataset.scope === 'inv' ? state.invSort : state.listSort;
+        if (sortObj.key === el.dataset.key) {
+          sortObj.dir = sortObj.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortObj.key = el.dataset.key;
+          sortObj.dir = 'asc';
+        }
+        render();
+      });
+    } else if (action === 'open-filter') {
+      el.addEventListener('click', () => openFilterModal(el.dataset.scope));
+    } else if (action === 'toggle-filter-chip') {
+      el.addEventListener('click', () => {
+        const dim = el.dataset.dim, val = el.dataset.value;
+        const arr = state.filterDraft[dim];
+        const idx = arr.indexOf(val);
+        if (idx >= 0) arr.splice(idx, 1); else arr.push(val);
+        openModal(renderFilterModalBody());
+      });
+    } else if (action === 'clear-filter') {
+      el.addEventListener('click', () => {
+        state.filterDraft.stores = [];
+        state.filterDraft.categories = [];
+        state.filterDraft.homeAreas = [];
+        state.filterDraft.minNeed = 0;
+        openModal(renderFilterModalBody());
+      });
+    } else if (action === 'apply-filter') {
+      el.addEventListener('click', () => {
+        const minNeedInput = document.getElementById('filter-minneed');
+        const minNeed = minNeedInput ? (parseFloat(minNeedInput.value) || 0) : 0;
+        const target = state.filterDraft.scope === 'inv' ? 'invFilter' : 'listFilter';
+        state[target] = {
+          stores: state.filterDraft.stores,
+          categories: state.filterDraft.categories,
+          homeAreas: state.filterDraft.homeAreas,
+          minNeed
+        };
+        closeModal();
+        render();
+      });
     } else if (action === 'search-input') {
       el.addEventListener('input', () => { state.searchQuery = el.value; render(); focusSearchEnd(); });
     } else if (action === 'close-modal') {
@@ -537,6 +831,19 @@ async function onSaveNewItem() {
   }));
   await DB.createItem({ name, category, brand, description: '', locationEntries });
   state.items = await DB.getItems();
+  closeModal();
+  render();
+}
+
+async function onSaveOneTime() {
+  const name = document.getElementById('new-onetime-name').value.trim();
+  if (!name) return;
+  const category = document.getElementById('new-onetime-category').value.trim();
+  const store = document.getElementById('new-onetime-store').value.trim();
+  const notes = document.getElementById('new-onetime-notes').value.trim();
+  const locationIds = [...document.querySelectorAll('.new-onetime-loc:checked')].map(c => c.value);
+  await DB.createOneTimeItem({ name, category, store, notes, locationIds });
+  state.oneTimeItems = await DB.getOneTimeItems();
   closeModal();
   render();
 }
