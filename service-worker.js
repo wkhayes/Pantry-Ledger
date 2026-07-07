@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pantry-ledger-v1';
+const CACHE_NAME = 'pantry-ledger-v2';
 const ASSETS = [
   './',
   './index.html',
