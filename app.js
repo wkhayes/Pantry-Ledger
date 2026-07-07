@@ -12,6 +12,8 @@ const state = {
   invFilter: { stores: [], categories: [], homeAreas: [], minNeed: 0 },
   listFilter: { stores: [], categories: [], homeAreas: [], minNeed: 0 },
   filterDraft: null,
+  storeOrder: [],
+  collapsedStores: new Set(),
   expanded: new Set(),
   searchQuery: ''
 };
@@ -23,6 +25,7 @@ async function boot() {
   state.locations = await DB.getLocations();
   state.items = await DB.getItems();
   state.oneTimeItems = await DB.getOneTimeItems();
+  state.storeOrder = await DB.getSetting('storeOrder', []);
   state.activeLocationIds = state.locations.map(l => l.id);
   state.listScope = [...state.activeLocationIds];
   render();
@@ -328,6 +331,28 @@ function renderShoppingList() {
     return controls + emptyState('All stocked up', msg, null, null);
   }
 
+  const NO_STORE = 'No store';
+
+  function storesForRow(rec) {
+    const stores = (rec.stores || []).filter(Boolean);
+    if (state.listFilter.stores.length) {
+      const matched = stores.filter(s => state.listFilter.stores.includes(s));
+      return matched.length ? matched : (stores.length ? [] : [NO_STORE]);
+    }
+    return stores.length ? stores : [NO_STORE];
+  }
+
+  const groups = {};
+  for (const row of filtered) {
+    for (const s of storesForRow(row.rec)) {
+      (groups[s] = groups[s] || []).push(row);
+    }
+  }
+  const groupNames = Object.keys(groups);
+  ensureStoreOrder(groupNames);
+  const orderedNames = state.storeOrder.filter(n => groups[n]);
+  state._visibleStoreOrder = orderedNames;
+
   const headerRow = filtered.length ? `
     <div class="col-headers">
       ${sortHeaderBtn('Item', 'list', 'name', state.listSort, 'col-header-name')}
@@ -336,28 +361,24 @@ function renderShoppingList() {
     </div>
   ` : '';
 
-  const rowsHtml = filtered.map(({ item, locId, rec, need }) => {
-    const key = `${item.id}::${locId}`;
-    const open = state.expanded.has(key);
+  const groupsHtml = orderedNames.map((storeName, idx) => {
+    const rows = groups[storeName];
+    const collapsed = state.collapsedStores.has(storeName);
+    const canUp = idx > 0;
+    const canDown = idx < orderedNames.length - 1;
+    const rowsHtml = rows.map(({ item, locId, rec, need }) => shoppingRowHtml(item, locId, rec, need, locIds)).join('');
     return `
-      <div class="item-row item-row-2line">
-        <div class="row-top">
-          <div class="row-name-col" data-action="toggle-expand" data-key="${key}">
-            <div class="item-name">${escapeHtml(item.name)}</div>
-          </div>
-          <div class="row-need-col"><span class="need-badge">${fmtQty(need)}</span></div>
-          ${expandToggleBtn(key)}
-        </div>
-        <div class="row-bottom">
-          <div class="chip-inline">${locIds.length > 1 ? `<span class="tag tag-loc">${escapeHtml(locName(locId))}</span>` : ''}</div>
-          <div class="row-actions-col">
-            <input type="number" class="qty-input" min="0" step="0.5" value="${fmtQty(need)}" data-qty-for="${item.id}::${locId}" />
-            <button class="btn btn-primary btn-sm" data-action="receive" data-item="${item.id}" data-loc="${locId}">Got it</button>
-            <button class="btn btn-ghost btn-sm" data-action="defer" data-item="${item.id}" data-loc="${locId}">Defer</button>
+      <div class="store-group">
+        <div class="store-group-header">
+          <button class="store-collapse-btn" data-action="toggle-store" data-store="${escapeHtml(storeName)}">${collapsed ? '▶' : '▼'}</button>
+          <span class="store-group-name" data-action="toggle-store" data-store="${escapeHtml(storeName)}">${escapeHtml(storeName)} <span class="store-count">${rows.length}</span></span>
+          <div class="store-move-btns">
+            <button class="move-btn" data-action="move-store" data-store="${escapeHtml(storeName)}" data-dir="up" ${canUp ? '' : 'disabled'}>▲</button>
+            <button class="move-btn" data-action="move-store" data-store="${escapeHtml(storeName)}" data-dir="down" ${canDown ? '' : 'disabled'}>▼</button>
           </div>
         </div>
+        ${collapsed ? '' : rowsHtml}
       </div>
-      ${open ? detailsPanel(item, rec, locId) : ''}
     `;
   }).join('');
 
@@ -408,7 +429,55 @@ function renderShoppingList() {
     `).join('')}
   ` : '';
 
-  return controls + `<div class="list">${headerRow}${rowsHtml}${deferredHtml}${oneTimeHtml}</div>`;
+  return controls + `<div class="list">${headerRow}${groupsHtml}${deferredHtml}${oneTimeHtml}</div>`;
+}
+
+function shoppingRowHtml(item, locId, rec, need, locIds) {
+  const key = `${item.id}::${locId}`;
+  const open = state.expanded.has(key);
+  return `
+    <div class="item-row item-row-2line">
+      <div class="row-top">
+        <div class="row-name-col" data-action="toggle-expand" data-key="${key}">
+          <div class="item-name">${escapeHtml(item.name)}</div>
+        </div>
+        <div class="row-need-col"><span class="need-badge">${fmtQty(need)}</span></div>
+        ${expandToggleBtn(key)}
+      </div>
+      <div class="row-bottom">
+        <div class="chip-inline">${locIds.length > 1 ? `<span class="tag tag-loc">${escapeHtml(locName(locId))}</span>` : ''}</div>
+        <div class="row-actions-col">
+          <input type="number" class="qty-input" min="0" step="0.5" value="${fmtQty(need)}" data-qty-for="${item.id}::${locId}" />
+          <button class="btn btn-primary btn-sm" data-action="receive" data-item="${item.id}" data-loc="${locId}">Got it</button>
+          <button class="btn btn-ghost btn-sm" data-action="defer" data-item="${item.id}" data-loc="${locId}">Defer</button>
+        </div>
+      </div>
+    </div>
+    ${open ? detailsPanel(item, rec, locId) : ''}
+  `;
+}
+
+function ensureStoreOrder(names) {
+  let changed = false;
+  for (const n of names) {
+    if (!state.storeOrder.includes(n)) { state.storeOrder.push(n); changed = true; }
+  }
+  if (changed) DB.setSetting('storeOrder', state.storeOrder);
+}
+
+function moveStoreInVisibleOrder(name, dir) {
+  const visible = state._visibleStoreOrder || [];
+  const idx = visible.indexOf(name);
+  if (idx < 0) return;
+  const targetIdx = dir === 'up' ? idx - 1 : idx + 1;
+  if (targetIdx < 0 || targetIdx >= visible.length) return;
+  const newVisible = visible.slice();
+  [newVisible[idx], newVisible[targetIdx]] = [newVisible[targetIdx], newVisible[idx]];
+  const visibleSet = new Set(newVisible);
+  const queue = [...newVisible];
+  state.storeOrder = state.storeOrder.map(n => visibleSet.has(n) ? queue.shift() : n);
+  DB.setSetting('storeOrder', state.storeOrder);
+  render();
 }
 
 function renderSearch() {
@@ -735,6 +804,14 @@ function bindGlobalEvents() {
         state.items = await DB.getItems();
         render();
       });
+    } else if (action === 'toggle-store') {
+      el.addEventListener('click', () => {
+        const store = el.dataset.store;
+        if (state.collapsedStores.has(store)) state.collapsedStores.delete(store); else state.collapsedStores.add(store);
+        render();
+      });
+    } else if (action === 'move-store') {
+      el.addEventListener('click', () => moveStoreInVisibleOrder(el.dataset.store, el.dataset.dir));
     } else if (action === 'sort-col') {
       el.addEventListener('click', () => {
         const sortObj = el.dataset.scope === 'inv' ? state.invSort : state.listSort;

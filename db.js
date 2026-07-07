@@ -61,6 +61,15 @@ const Store = {
 };
 
 const DB = {
+  async getSetting(key, fallback) {
+    const rec = await Store.get('meta', key);
+    return rec ? rec.value : fallback;
+  },
+
+  async setSetting(key, value) {
+    return Store.put('meta', { key, value });
+  },
+
   async isSeeded() {
     const flag = await Store.get('meta', 'seeded');
     return !!(flag && flag.value);

@@ -30,9 +30,28 @@ Sharing the app/list with other people, exporting to Google Drive, multi-device 
 - **"All" location chip** — one tap to select every location at once, in both Inventory and Shopping List. (You'd mentioned wanting something added to the locations toggle but the sentence got cut off before it said what — I took a guess here. Let me know if you meant something else, like a combined vs. per-location display mode.)
 - **One-time items** — "+ One-time" on the shopping list adds something that's never tracked in inventory (no desired/stock, no defer). It sits in its own section until you tap "Got it" or "Remove."
 
+## What's new (round 3)
+
+- **Grouped by store** — the shopping list is now organized into collapsible sections, one per store. Tap the ▾/▶ on a section to collapse or expand it.
+- **Reorder store sections** — the ▲/▼ buttons on each store header move that section up or down; your order is saved and survives reloads.
+- **Sort still works within each group** — tapping "Item" or "Need" in the header sorts inside every store section using the same rule, rather than one global flat order.
+- **Multi-store items appear in every relevant store's section** — e.g. an item stocked at both Costco and HyVee shows up under both. Any action (partial receive, defer) updates the single underlying record, so it's reflected instantly in every section it appears in.
+- Deferred and one-time items stay as their own flat sections below the store groups, unaffected by grouping/sorting — shout if you'd rather see those grouped by store too.
+
+
+
 ## Updating your deployed copy
 
 Since your repo is already live, just replace the files in your repo with the ones in this folder (same filenames) and push. No new setup needed — the app will pick up the new schema automatically the next time it loads (existing inventory data is preserved).
+
+**Important:** every time app files change, `service-worker.js` needs to change too (even just the `CACHE_NAME` string), or your phone will keep serving the old cached version indefinitely — the browser only checks for service worker updates when that file's contents change. I've bumped it to `pantry-ledger-v3` this round. Any future round I send will bump it again automatically.
+
+If you update the repo and still see old content:
+1. Confirm the deploy actually finished (check the Actions tab on GitHub).
+2. Fully close the installed app (swipe it away from recent apps, not just back out of it) and reopen — this lets the new service worker take over.
+3. If it's still stale, open the site in Chrome, tap ⋮ → Settings → Site settings → your site → Clear & reset, then reinstall.
+
+## Install it on your Android phone
 
 
 
