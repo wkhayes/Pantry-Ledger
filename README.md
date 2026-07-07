@@ -53,11 +53,18 @@ Sharing the app/list with other people, exporting to Google Drive, multi-device 
 - **Compact header** — the app name and page title now share one line ("Pantry Ledger — Inventory") at the same small size, cutting the header's height noticeably.
 - **Location toggles now look like tabs** — flat text with an underline indicator on the active one(s), sitting on their own row with proper breathing room instead of pill buttons crowding the header bar.
 
+## What's new (round 6)
+
+- **Hamburger menu** — a ☰ button on the top-right of the header now holds "Add Inventory Item" and "Add Location." Both used to be buttons cluttering the toolbar/tabs; now they're tucked away as distinct, deliberate actions.
+- **"+ One-time" stays put** on the Shopping List toolbar since it's a different, frequently-used action — only the inventory-item creation moved into the menu.
+- **"+ Location" tab removed** from both header tab rows — same reasoning, now lives in the menu.
+- **"Need" label moved into the badge** — the yellow quantity callout now reads "NEED 0.5" instead of a plain number, and the column header above it is just a small sort icon (tap it the same as before to sort by need).
+
 ## Updating your deployed copy
 
 Since your repo is already live, just replace the files in your repo with the ones in this folder (same filenames) and push. No new setup needed — the app will pick up the new schema automatically the next time it loads (existing inventory data is preserved).
 
-**Important:** every time app files change, `service-worker.js` needs to change too (even just the `CACHE_NAME` string), or your phone will keep serving the old cached version indefinitely — the browser only checks for service worker updates when that file's contents change. I've bumped it to `pantry-ledger-v5` this round. Any future round I send will bump it again automatically.
+**Important:** every time app files change, `service-worker.js` needs to change too (even just the `CACHE_NAME` string), or your phone will keep serving the old cached version indefinitely — the browser only checks for service worker updates when that file's contents change. I've bumped it to `pantry-ledger-v6` this round. Any future round I send will bump it again automatically.
 
 If you update the repo and still see old content:
 1. Confirm the deploy actually finished (check the Actions tab on GitHub).

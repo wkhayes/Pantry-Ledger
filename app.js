@@ -128,10 +128,13 @@ function renderHeader() {
   return `
     <header class="topbar">
       <div class="brand-row">
-        <img src="icons/icon-192.png" alt="" class="brand-mark" />
-        <span class="brand-name">Pantry Ledger</span>
-        <span class="brand-sep">—</span>
-        <h1 class="view-title">${title}</h1>
+        <div class="brand-left">
+          <img src="icons/icon-192.png" alt="" class="brand-mark" />
+          <span class="brand-name">Pantry Ledger</span>
+          <span class="brand-sep">—</span>
+          <h1 class="view-title">${title}</h1>
+        </div>
+        <button class="menu-btn" data-action="open-menu" aria-label="Menu">☰</button>
       </div>
       ${state.view !== 'search' ? renderLocationChips() : ''}
     </header>
@@ -150,9 +153,18 @@ function renderLocationChips() {
     <div class="chip-row loc-tabs">
       <button class="chip chip-all ${allOn ? 'chip-on' : ''}" data-action="toggle-all-loc">All</button>
       ${chips}
-      <button class="chip chip-add" data-action="add-location">+ Location</button>
     </div>
   `;
+}
+
+function openMenuModal() {
+  openModal(`
+    <h2 class="modal-title">Menu</h2>
+    <div class="menu-list">
+      <button class="menu-item" data-action="menu-add-item">Add Inventory Item</button>
+      <button class="menu-item" data-action="menu-add-location">Add Location</button>
+    </div>
+  `);
 }
 
 function renderTabBar() {
@@ -173,10 +185,11 @@ function renderTabBar() {
   `;
 }
 
-function sortHeaderBtn(label, scope, key, currentSort, extraClass) {
+function sortHeaderBtn(label, scope, key, currentSort, extraClass, iconOnly) {
   const active = currentSort.key === key;
-  const arrow = active ? (currentSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
-  return `<button class="col-header ${extraClass || ''} ${active ? 'col-header-active' : ''}" data-action="sort-col" data-scope="${scope}" data-key="${key}">${label}${arrow}</button>`;
+  const arrow = active ? (currentSort.dir === 'asc' ? '▲' : '▼') : '⇅';
+  const text = iconOnly ? arrow : `${label}${active ? ' ' + arrow : ''}`;
+  return `<button class="col-header ${extraClass || ''} ${active ? 'col-header-active' : ''}" data-action="sort-col" data-scope="${scope}" data-key="${key}">${text}</button>`;
 }
 
 function filterButtonHtml(scope, filter) {
@@ -310,7 +323,6 @@ function controlsBar(scope) {
   return `
     <div class="toolbar toolbar-wrap">
       ${filterButtonHtml(scope, filter)}
-      <button class="btn btn-primary" data-action="open-add-item" ${scope === 'list' ? 'data-target-list="1"' : ''}>+ Add Item</button>
       ${scope === 'list' ? `<button class="btn btn-ghost" data-action="open-add-onetime">+ One-time</button>` : ''}
     </div>
   `;
@@ -357,7 +369,7 @@ function renderShoppingList() {
   const headerRow = filtered.length ? `
     <div class="col-headers">
       ${sortHeaderBtn('Item', 'list', 'name', state.listSort, 'col-header-name')}
-      ${sortHeaderBtn('Need', 'list', 'need', state.listSort, 'col-header-need')}
+      ${sortHeaderBtn('Need', 'list', 'need', state.listSort, 'col-header-need', true)}
       <span class="col-header-spacer"></span>
     </div>
   ` : '';
@@ -391,7 +403,7 @@ function renderShoppingList() {
           <div class="row-name-col">
             <div class="item-name">${escapeHtml(item.name)}</div>
           </div>
-          <div class="row-need-col"><span class="need-badge need-badge-muted">${fmtQty(need)}</span></div>
+          <div class="row-need-col"><span class="need-badge need-badge-muted"><span class="need-label">Need</span>${fmtQty(need)}</span></div>
         </div>
         <div class="row-bottom">
           <div class="chip-inline">
@@ -442,7 +454,7 @@ function shoppingRowHtml(item, locId, rec, need, locIds) {
         <div class="row-name-col" data-action="toggle-expand" data-key="${key}">
           <div class="item-name">${escapeHtml(item.name)}</div>
         </div>
-        <div class="row-need-col"><span class="need-badge">${fmtQty(need)}</span></div>
+        <div class="row-need-col"><span class="need-badge"><span class="need-label">Need</span>${fmtQty(need)}</span></div>
         ${expandToggleBtn(key)}
       </div>
       <div class="row-bottom">
@@ -761,6 +773,12 @@ function bindGlobalEvents() {
         list.push(...allIds);
         render();
       });
+    } else if (action === 'open-menu') {
+      el.addEventListener('click', () => openMenuModal());
+    } else if (action === 'menu-add-item') {
+      el.addEventListener('click', () => openAddItemModal(state.view === 'list'));
+    } else if (action === 'menu-add-location') {
+      el.addEventListener('click', () => openAddLocationModal());
     } else if (action === 'add-location') {
       el.addEventListener('click', () => openAddLocationModal());
     } else if (action === 'save-location') {
@@ -975,7 +993,7 @@ boot();
 
 /* ---------------- Material ripple effect ---------------- */
 
-const RIPPLE_SELECTOR = '.btn, .chip, .tab, .step-btn, .expand-toggle, .move-btn, .store-collapse-btn, .col-header, .store-group-name';
+const RIPPLE_SELECTOR = '.btn, .chip, .tab, .step-btn, .expand-toggle, .move-btn, .store-collapse-btn, .col-header, .store-group-name, .menu-btn, .menu-item';
 
 document.addEventListener('pointerdown', (e) => {
   const el = e.target.closest(RIPPLE_SELECTOR);

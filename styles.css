@@ -72,7 +72,7 @@ button { -webkit-appearance: none; appearance: none; }
   to { transform: scale(2.6); opacity: 0; }
 }
 .btn, .chip, .tab, .step-btn, .expand-toggle, .move-btn, .store-collapse-btn,
-.col-header, .store-group-name {
+.col-header, .store-group-name, .menu-btn, .menu-item {
   position: relative;
   overflow: hidden;
 }
@@ -91,9 +91,46 @@ button { -webkit-appearance: none; appearance: none; }
 .brand-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   padding-bottom: 14px;
 }
+
+.brand-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.menu-btn {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: var(--on-surface);
+  font-size: 18px;
+  line-height: 1;
+  padding: 6px 4px;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+}
+.menu-btn:active { background: rgba(255,255,255,0.08); }
+
+.menu-list { display: flex; flex-direction: column; }
+.menu-item {
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--outline);
+  color: var(--on-surface);
+  font-size: 15px;
+  font-weight: 500;
+  text-align: left;
+  padding: 15px 4px;
+  cursor: pointer;
+}
+.menu-list .menu-item:first-child { border-top: none; }
+.menu-item:active { background: var(--surface-2); }
 
 .brand-mark { width: 16px; height: 16px; border-radius: 4px; flex: 0 0 auto; }
 .brand-name {
@@ -350,6 +387,15 @@ button { -webkit-appearance: none; appearance: none; }
   padding: 3px 9px;
   font-weight: 700;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.need-label {
+  font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.75;
+  margin-right: 4px;
 }
 .need-badge-muted { background: var(--surface-2); color: var(--on-surface-faint); }
 
