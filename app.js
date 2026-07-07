@@ -5,15 +5,16 @@ const state = {
   items: [],
   oneTimeItems: [],
   activeLocationIds: [],
-  view: 'inventory',
+  view: 'list',
   listScope: [],
-  invSort: { key: 'category', dir: 'asc' },   // 'category' | 'name' | 'stock'
+  invSort: { key: 'name', dir: 'asc' },       // 'name' | 'stock'
   listSort: { key: 'name', dir: 'asc' },      // 'name' | 'need'
   invFilter: { stores: [], categories: [], homeAreas: [], minNeed: 0 },
   listFilter: { stores: [], categories: [], homeAreas: [], minNeed: 0 },
   filterDraft: null,
   storeOrder: [],
-  collapsedStores: new Set(),
+  expandedStores: new Set(),
+  expandedCategories: new Set(),
   expanded: new Set(),
   searchQuery: ''
 };
@@ -239,24 +240,18 @@ function renderInventory() {
 
   const { key, dir } = state.invSort;
   const mul = dir === 'asc' ? 1 : -1;
-  if (key === 'name') {
-    rows.sort((a, b) => mul * a.item.name.localeCompare(b.item.name));
-  } else if (key === 'stock') {
+  if (key === 'stock') {
     rows.sort((a, b) => mul * (a.rec.inStock - b.rec.inStock));
   } else {
-    rows.sort((a, b) => a.item.category.localeCompare(b.item.category) || a.item.name.localeCompare(b.item.name));
+    rows.sort((a, b) => mul * a.item.name.localeCompare(b.item.name));
   }
 
-  let body;
-  if (key === 'category') {
-    let lastCategory = null;
-    body = rows.map(({ item, locId, rec }) => {
-      const catHeader = item.category !== lastCategory ? (() => { lastCategory = item.category; return `<div class="cat-header">${escapeHtml(item.category)}</div>`; })() : '';
-      return catHeader + inventoryRowHtml(item, locId, rec, locIds);
-    }).join('');
-  } else {
-    body = rows.map(({ item, locId, rec }) => inventoryRowHtml(item, locId, rec, locIds)).join('');
+  const groups = {};
+  for (const row of rows) {
+    const cat = row.item.category || 'Uncategorized';
+    (groups[cat] = groups[cat] || []).push(row);
   }
+  const categoryNames = Object.keys(groups).sort();
 
   const headerRow = `
     <div class="col-headers">
@@ -266,7 +261,22 @@ function renderInventory() {
     </div>
   `;
 
-  return controlsBar('inv') + `<div class="list">${headerRow}${body}</div>`;
+  const groupsHtml = categoryNames.map(cat => {
+    const catRows = groups[cat];
+    const expanded = state.expandedCategories.has(cat);
+    const rowsHtml = catRows.map(({ item, locId, rec }) => inventoryRowHtml(item, locId, rec, locIds)).join('');
+    return `
+      <div class="store-group">
+        <div class="store-group-header">
+          <button class="store-collapse-btn" data-action="toggle-category" data-category="${escapeHtml(cat)}">${expanded ? '▼' : '▶'}</button>
+          <span class="store-group-name" data-action="toggle-category" data-category="${escapeHtml(cat)}">${escapeHtml(cat)} <span class="store-count">${catRows.length}</span></span>
+        </div>
+        ${expanded ? rowsHtml : ''}
+      </div>
+    `;
+  }).join('');
+
+  return controlsBar('inv') + `<div class="list">${headerRow}${groupsHtml}</div>`;
 }
 
 function inventoryRowHtml(item, locId, rec, locIds) {
@@ -376,7 +386,7 @@ function renderShoppingList() {
 
   const groupsHtml = orderedNames.map((storeName, idx) => {
     const rows = groups[storeName];
-    const collapsed = state.collapsedStores.has(storeName);
+    const collapsed = !state.expandedStores.has(storeName);
     const canUp = idx > 0;
     const canDown = idx < orderedNames.length - 1;
     const rowsHtml = rows.map(({ item, locId, rec, need }) => shoppingRowHtml(item, locId, rec, need, locIds)).join('');
@@ -826,7 +836,13 @@ function bindGlobalEvents() {
     } else if (action === 'toggle-store') {
       el.addEventListener('click', () => {
         const store = el.dataset.store;
-        if (state.collapsedStores.has(store)) state.collapsedStores.delete(store); else state.collapsedStores.add(store);
+        if (state.expandedStores.has(store)) state.expandedStores.delete(store); else state.expandedStores.add(store);
+        render();
+      });
+    } else if (action === 'toggle-category') {
+      el.addEventListener('click', () => {
+        const cat = el.dataset.category;
+        if (state.expandedCategories.has(cat)) state.expandedCategories.delete(cat); else state.expandedCategories.add(cat);
         render();
       });
     } else if (action === 'move-store') {

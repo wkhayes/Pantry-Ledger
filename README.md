@@ -60,11 +60,18 @@ Sharing the app/list with other people, exporting to Google Drive, multi-device 
 - **"+ Location" tab removed** from both header tab rows — same reasoning, now lives in the menu.
 - **"Need" label moved into the badge** — the yellow quantity callout now reads "NEED 0.5" instead of a plain number, and the column header above it is just a small sort icon (tap it the same as before to sort by need).
 
+## What's new (round 7)
+
+- **Inventory now groups by category with collapsible sections**, matching how the Shopping List groups by store — tap the ▶/▼ to expand or collapse.
+- **Everything collapsed by default** — both category sections (Inventory) and store sections (Shopping List) start collapsed on load, and stay collapsed for any new group that shows up later, until you tap to open them.
+- **Default sort is now "Item" (name, A–Z)** on both pages, within each group.
+- **App now opens to the Shopping List** instead of Inventory.
+
 ## Updating your deployed copy
 
 Since your repo is already live, just replace the files in your repo with the ones in this folder (same filenames) and push. No new setup needed — the app will pick up the new schema automatically the next time it loads (existing inventory data is preserved).
 
-**Important:** every time app files change, `service-worker.js` needs to change too (even just the `CACHE_NAME` string), or your phone will keep serving the old cached version indefinitely — the browser only checks for service worker updates when that file's contents change. I've bumped it to `pantry-ledger-v6` this round. Any future round I send will bump it again automatically.
+**Important:** every time app files change, `service-worker.js` needs to change too (even just the `CACHE_NAME` string), or your phone will keep serving the old cached version indefinitely — the browser only checks for service worker updates when that file's contents change. I've bumped it to `pantry-ledger-v7` this round. Any future round I send will bump it again automatically.
 
 If you update the repo and still see old content:
 1. Confirm the deploy actually finished (check the Actions tab on GitHub).
