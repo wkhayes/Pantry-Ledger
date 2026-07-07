@@ -40,11 +40,24 @@ Sharing the app/list with other people, exporting to Google Drive, multi-device 
 
 
 
+## What's new (round 4)
+
+- **Full Material Design dark theme** — rebuilt the visual language: dark surfaces built from your primary `#122631`, accents and buttons in your secondary `#5589A6`, white primary text, and `#949494` for secondary/muted text.
+- Material-style components throughout: filled/outlined pill buttons, tonal chips, a bottom app-style navigation bar with an active pill indicator, bottom sheets with a drag handle for modals, filled text fields, and elevation shadows on cards.
+- A real ripple effect on taps (buttons, chips, tabs, steppers) — implemented in plain CSS/JS, no libraries.
+- App icon and browser theme color updated to match the new palette.
+- No functional changes in this round — every feature from before works exactly the same, just restyled.
+
+## What's new (round 5)
+
+- **Compact header** — the app name and page title now share one line ("Pantry Ledger — Inventory") at the same small size, cutting the header's height noticeably.
+- **Location toggles now look like tabs** — flat text with an underline indicator on the active one(s), sitting on their own row with proper breathing room instead of pill buttons crowding the header bar.
+
 ## Updating your deployed copy
 
 Since your repo is already live, just replace the files in your repo with the ones in this folder (same filenames) and push. No new setup needed — the app will pick up the new schema automatically the next time it loads (existing inventory data is preserved).
 
-**Important:** every time app files change, `service-worker.js` needs to change too (even just the `CACHE_NAME` string), or your phone will keep serving the old cached version indefinitely — the browser only checks for service worker updates when that file's contents change. I've bumped it to `pantry-ledger-v3` this round. Any future round I send will bump it again automatically.
+**Important:** every time app files change, `service-worker.js` needs to change too (even just the `CACHE_NAME` string), or your phone will keep serving the old cached version indefinitely — the browser only checks for service worker updates when that file's contents change. I've bumped it to `pantry-ledger-v5` this round. Any future round I send will bump it again automatically.
 
 If you update the repo and still see old content:
 1. Confirm the deploy actually finished (check the Actions tab on GitHub).

@@ -127,13 +127,14 @@ function renderHeader() {
   const title = state.view === 'inventory' ? 'Inventory' : state.view === 'list' ? 'Shopping List' : 'Search';
   return `
     <header class="topbar">
-      <div class="brand">
+      <div class="brand-row">
         <img src="icons/icon-192.png" alt="" class="brand-mark" />
         <span class="brand-name">Pantry Ledger</span>
+        <span class="brand-sep">—</span>
+        <h1 class="view-title">${title}</h1>
       </div>
-      <h1 class="view-title">${title}</h1>
+      ${state.view !== 'search' ? renderLocationChips() : ''}
     </header>
-    ${state.view !== 'search' ? renderLocationChips() : ''}
   `;
 }
 
@@ -146,7 +147,7 @@ function renderLocationChips() {
     return `<button class="chip ${on ? 'chip-on' : ''}" data-action="toggle-loc" data-loc="${loc.id}">${escapeHtml(loc.name)}</button>`;
   }).join('');
   return `
-    <div class="chip-row">
+    <div class="chip-row loc-tabs">
       <button class="chip chip-all ${allOn ? 'chip-on' : ''}" data-action="toggle-all-loc">All</button>
       ${chips}
       <button class="chip chip-add" data-action="add-location">+ Location</button>
@@ -971,3 +972,21 @@ async function onTrackHere(itemId, locId) {
 }
 
 boot();
+
+/* ---------------- Material ripple effect ---------------- */
+
+const RIPPLE_SELECTOR = '.btn, .chip, .tab, .step-btn, .expand-toggle, .move-btn, .store-collapse-btn, .col-header, .store-group-name';
+
+document.addEventListener('pointerdown', (e) => {
+  const el = e.target.closest(RIPPLE_SELECTOR);
+  if (!el || el.disabled) return;
+  const rect = el.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height) * 1.4;
+  const span = document.createElement('span');
+  span.className = 'ripple-span';
+  span.style.width = span.style.height = size + 'px';
+  span.style.left = (e.clientX - rect.left - size / 2) + 'px';
+  span.style.top = (e.clientY - rect.top - size / 2) + 'px';
+  el.appendChild(span);
+  span.addEventListener('animationend', () => span.remove());
+});
